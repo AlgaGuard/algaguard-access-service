@@ -138,3 +138,59 @@ test("resource decisions enforce tenant, role, and revocation", async () => {
     "NO_MEMBERSHIP",
   );
 });
+
+test("credential operations use least-privilege roles and current membership", async () => {
+  const { repository, organization } = await fixture();
+  const deviceUuid = "20000000-0000-4000-8000-000000000001";
+  await repository.registerResource("device", deviceUuid, organization.id);
+
+  for (const [subjectId, email, role] of [
+    ["admin", "admin@example.test", "ADMIN"],
+    ["operator", "operator@example.test", "OPERATOR"],
+    ["viewer", "viewer@example.test", "VIEWER"],
+  ] as const) {
+    const invitation = await repository.createInvitation({
+      organizationId: organization.id,
+      email,
+      role,
+      invitedBy: "owner",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await repository.acceptInvitation(invitation.token, subjectId, email);
+  }
+
+  const decide = (subjectId: string, action: string) =>
+    repository.decide({
+      subjectId,
+      action,
+      resourceType: "device",
+      resourceId: deviceUuid,
+    });
+  const readActions = ["device.credentials.view", "device.credentials.audit"];
+  const administrativeActions = [
+    "device.credentials.bootstrap",
+    "device.credentials.rotate",
+    "device.credentials.recover",
+    "device.credentials.revoke",
+    "device.credentials.compromise",
+  ];
+
+  for (const action of readActions)
+    for (const subjectId of ["owner", "admin", "operator", "viewer"])
+      assert.equal((await decide(subjectId, action)).allowed, true);
+  for (const action of administrativeActions) {
+    assert.equal((await decide("owner", action)).allowed, true);
+    assert.equal((await decide("admin", action)).allowed, true);
+    assert.equal(
+      (await decide("operator", action)).reason,
+      "INSUFFICIENT_ROLE",
+    );
+    assert.equal((await decide("viewer", action)).reason, "INSUFFICIENT_ROLE");
+  }
+
+  await repository.revokeMembership(organization.id, "admin");
+  assert.equal(
+    (await decide("admin", "device.credentials.revoke")).reason,
+    "NO_MEMBERSHIP",
+  );
+});

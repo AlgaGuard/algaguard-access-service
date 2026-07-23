@@ -6,6 +6,8 @@ PostgreSQL is the runtime source of truth. `MemoryAccessRepository` is an explic
 
 Device authorization uses the internal UUID resource, not the canonical MQTT identifier. Each device decision resolves current `deviceUuid`, `organizationId`, active status, and `ownershipVersion` through the authenticated Device Service API and verifies that context against the local resource registration. The service deliberately keeps no device-context authorization cache; transfer and revocation therefore affect the next decision without a stale-allow window. Decision responses include a timestamp and a maximum five-second consumer cache hint.
 
+Credential metadata and audit viewing are available to active organization members. Bootstrap creation, rotation, recovery, revocation, and compromise marking require an `OWNER` or `ADMIN`. Every decision remains scoped to the authoritative current device organization; operators and viewers cannot mutate credential state, revoked memberships are denied, and ownership transfer takes effect on the next authenticated internal decision.
+
 ## Commands
 
 ```sh

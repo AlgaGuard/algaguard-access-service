@@ -48,7 +48,18 @@ test("organization APIs derive ownership from the authenticated subject", async 
 });
 
 test("internal authorization decisions require a validated service principal", async () => {
-  const instance = app();
+  const instance = buildApp({
+    repository: new MemoryAccessRepository(),
+    authenticate,
+    resolveDeviceContext: {
+      async resolve() {
+        return undefined;
+      },
+      async resolveByDeviceId() {
+        return undefined;
+      },
+    },
+  });
   const denied = await request(instance)
     .post("/v1/internal/authorizations/decide")
     .set("authorization", "Bearer user")
@@ -110,6 +121,19 @@ test("device decisions verify UUID ownership and react to revocation and transfe
         resolvedAt: new Date().toISOString(),
       };
     },
+    async resolveByDeviceId(requestedDeviceId) {
+      if (requestedDeviceId !== "AG-000001") return undefined;
+      return {
+        schema: "urn:algaguard:schema:internal:device-context:v1",
+        schemaVersion: "1.0.0",
+        deviceUuid,
+        deviceId: "AG-000001",
+        organizationId: contextOrganizationId,
+        status: "ACTIVE",
+        ownershipVersion,
+        resolvedAt: new Date().toISOString(),
+      };
+    },
   };
   const instance = buildApp({
     repository,
@@ -122,7 +146,7 @@ test("device decisions verify UUID ownership and react to revocation and transfe
       .set("authorization", "Bearer service")
       .send({
         subjectId,
-        action: "subscription.read",
+        action: "device.credentials.view",
         resourceType: "device",
         resourceId: deviceUuid,
         organizationId: contextOrganizationId,
@@ -136,6 +160,14 @@ test("device decisions verify UUID ownership and react to revocation and transfe
   assert.equal(allowed.body.ttlSeconds, 5);
   assert.match(allowed.body.decidedAt, /Z$/);
   assert.equal((await decide("owner-b")).body.allowed, false);
+  assert.equal(
+    (
+      await decide("owner-a", {
+        resourceId: "AG-000001",
+      })
+    ).body.allowed,
+    true,
+  );
   assert.equal(
     (
       await decide("owner-a", {
@@ -176,6 +208,47 @@ test("device decisions verify UUID ownership and react to revocation and transfe
   const newOwner = await decide("owner-b");
   assert.equal(newOwner.body.allowed, true);
   assert.equal(newOwner.body.ownershipVersion, "2");
+});
+
+test("claimed device bootstrap uses registered ownership before active context exists", async () => {
+  const repository = new MemoryAccessRepository();
+  const organization = await repository.createOrganization("A", "owner-a");
+  const deviceUuid = "20000000-0000-4000-8000-000000000001";
+  await repository.registerResource("device", deviceUuid, organization.id);
+  const instance = buildApp({
+    repository,
+    authenticate,
+    resolveDeviceContext: {
+      async resolve() {
+        return undefined;
+      },
+    },
+  });
+  const decision = await request(instance)
+    .post("/v1/internal/authorizations/decide")
+    .set("authorization", "Bearer service")
+    .send({
+      subjectId: "owner-a",
+      action: "device.credentials.bootstrap",
+      resourceType: "device",
+      resourceId: deviceUuid,
+    });
+  assert.equal(decision.status, 200);
+  assert.equal(decision.body.allowed, true);
+  assert.equal(decision.body.organizationId, organization.id);
+  assert.equal(decision.body.ttlSeconds, 0);
+
+  const ordinaryDecision = await request(instance)
+    .post("/v1/internal/authorizations/decide")
+    .set("authorization", "Bearer service")
+    .send({
+      subjectId: "owner-a",
+      action: "device.credentials.view",
+      resourceType: "device",
+      resourceId: deviceUuid,
+    });
+  assert.equal(ordinaryDecision.body.allowed, false);
+  assert.equal(ordinaryDecision.body.reason, "RESOURCE_MISMATCH");
 });
 
 test("Device Service context resolution uses client credentials and validates identity", async () => {
