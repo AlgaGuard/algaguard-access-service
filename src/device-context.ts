@@ -16,6 +16,10 @@ export interface DeviceContextResolver {
     deviceUuid: string,
     correlationId?: string,
   ): Promise<DeviceContext | undefined>;
+  resolveByDeviceId?(
+    deviceId: string,
+    correlationId?: string,
+  ): Promise<DeviceContext | undefined>;
 }
 
 const contextSchema = z
@@ -77,9 +81,9 @@ export class OidcDeviceContextResolver implements DeviceContextResolver {
     return this.token.value;
   }
 
-  async resolve(deviceUuid: string, correlationId?: string) {
+  private async request(path: string, correlationId?: string) {
     const response = await this.fetcher(
-      `${this.environment.DEVICE_SERVICE_URL ?? "http://device-service:3000"}/v1/internal/devices/${encodeURIComponent(deviceUuid)}/context`,
+      `${this.environment.DEVICE_SERVICE_URL ?? "http://device-service:3000"}${path}`,
       {
         headers: {
           authorization: `Bearer ${await this.serviceToken()}`,
@@ -93,6 +97,24 @@ export class OidcDeviceContextResolver implements DeviceContextResolver {
         `Device context resolution failed with ${response.status}`,
       );
     const context = contextSchema.parse(await response.json());
+    return context;
+  }
+
+  async resolve(deviceUuid: string, correlationId?: string) {
+    const context = await this.request(
+      `/v1/internal/devices/${encodeURIComponent(deviceUuid)}/context`,
+      correlationId,
+    );
+    if (!context) return undefined;
     return context.deviceUuid === deviceUuid ? context : undefined;
+  }
+
+  async resolveByDeviceId(deviceId: string, correlationId?: string) {
+    const context = await this.request(
+      `/v1/internal/devices/by-device-id/${encodeURIComponent(deviceId)}/context`,
+      correlationId,
+    );
+    if (!context) return undefined;
+    return context.deviceId === deviceId ? context : undefined;
   }
 }

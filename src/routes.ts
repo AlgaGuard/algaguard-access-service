@@ -81,20 +81,34 @@ export function createRouter(dependencies: RouteDependencies) {
   ) {
     let organizationId = input.organizationId;
     let ownershipVersion: string | undefined;
+    let canonicalResourceId = input.resourceId;
     if (input.resourceType === "device") {
       const parsedUuid = z.string().uuid().safeParse(input.resourceId);
-      if (!parsedUuid.success)
+      const parsedDeviceId = z
+        .string()
+        .regex(/^AG-[0-9]{6}$/)
+        .safeParse(input.resourceId);
+      if (!parsedUuid.success && !parsedDeviceId.success)
         return {
           allowed: false,
           reason: "RESOURCE_MISMATCH" as const,
           decidedAt: new Date().toISOString(),
           ttlSeconds: 0,
         };
-      const context = await resolveDeviceContext.resolve(
-        parsedUuid.data,
-        request.header("x-correlation-id"),
-      );
-      if (!context && input.action === "device.credentials.bootstrap")
+      const context = parsedUuid.success
+        ? await resolveDeviceContext.resolve(
+            parsedUuid.data,
+            request.header("x-correlation-id"),
+          )
+        : await resolveDeviceContext.resolveByDeviceId?.(
+            parsedDeviceId.data!,
+            request.header("x-correlation-id"),
+          );
+      if (
+        !context &&
+        parsedUuid.success &&
+        input.action === "device.credentials.bootstrap"
+      )
         return {
           ...(await repository.decide(input)),
           decidedAt: new Date().toISOString(),
@@ -112,10 +126,12 @@ export function createRouter(dependencies: RouteDependencies) {
         };
       organizationId = context.organizationId;
       ownershipVersion = context.ownershipVersion;
+      canonicalResourceId = context.deviceUuid;
     }
     return {
       ...(await repository.decide({
         ...input,
+        ...(canonicalResourceId ? { resourceId: canonicalResourceId } : {}),
         ...(organizationId ? { organizationId } : {}),
       })),
       decidedAt: new Date().toISOString(),
