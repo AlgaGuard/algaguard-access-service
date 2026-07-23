@@ -2,7 +2,7 @@
 
 Durable multi-tenant organization, membership, invitation, resource-ownership, and authorization service.
 
-PostgreSQL is the runtime source of truth. `MemoryAccessRepository` is an explicitly injected test adapter and is never selected by production startup. Human and service callers present Keycloak bearer tokens; internal decisions require an allowlisted service client identity rather than trusted subject headers.
+PostgreSQL is the runtime source of truth. `MemoryAccessRepository` is an explicitly injected test adapter and is never selected by production startup. Human and service callers present Keycloak bearer tokens; internal decisions require an allowlisted service client identity rather than trusted subject headers. The default allowlist includes the telemetry service so HTTPS telemetry reads can obtain authoritative device-access decisions.
 
 ## Commands
 

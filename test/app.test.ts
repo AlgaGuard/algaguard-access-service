@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import request from "supertest";
 import { buildApp } from "../src/app.js";
-import type { Authenticator } from "../src/auth.js";
+import { configuredServiceClients, type Authenticator } from "../src/auth.js";
 import { MemoryAccessRepository } from "../src/domain.js";
 
 const authenticate: Authenticator = async (authorization) => {
@@ -74,5 +74,12 @@ test("unknown routes use bounded problem details", async () => {
   assert.match(
     response.headers["content-type"] ?? "",
     /application\/problem\+json/,
+  );
+});
+
+test("telemetry is an allowlisted authorization-decision client", () => {
+  assert.equal(
+    configuredServiceClients({}).has("algaguard-telemetry-service"),
+    true,
   );
 });
