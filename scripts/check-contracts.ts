@@ -8,6 +8,8 @@ const required = [
   "schemas/websocket/realtime-envelope-v1.schema.json",
   "asyncapi/algaguard-mqtt-v1.yaml",
   "asyncapi/algaguard-websocket-v1.yaml",
+  "schemas/common/device-identity-v1.schema.json",
+  "schemas/internal/device-context-v1.schema.json",
 ];
 const missing = required.filter(
   (file) => !fs.existsSync(path.join(contractRoot, file)),

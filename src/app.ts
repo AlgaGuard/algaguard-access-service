@@ -8,6 +8,7 @@ import pino from "pino";
 import { ZodError } from "zod";
 import { AuthenticationError, type Authenticator } from "./auth.js";
 import { DomainError, type AccessRepository } from "./domain.js";
+import type { DeviceContextResolver } from "./device-context.js";
 import { createRouter } from "./routes.js";
 
 const logger = pino({
@@ -49,6 +50,7 @@ const requestContext: RequestHandler = (request, response, next) => {
 export function buildApp(dependencies: {
   repository: AccessRepository;
   authenticate?: Authenticator;
+  resolveDeviceContext?: DeviceContextResolver;
 }) {
   const app = express();
   app.disable("x-powered-by");
