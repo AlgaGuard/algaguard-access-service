@@ -4,6 +4,8 @@ Durable multi-tenant organization, membership, invitation, resource-ownership, a
 
 PostgreSQL is the runtime source of truth. `MemoryAccessRepository` is an explicitly injected test adapter and is never selected by production startup. Human and service callers present Keycloak bearer tokens; internal decisions require an allowlisted service client identity rather than trusted subject headers. The default allowlist includes the telemetry service so HTTPS telemetry reads can obtain authoritative device-access decisions.
 
+Device authorization uses the internal UUID resource, not the canonical MQTT identifier. Each device decision resolves current `deviceUuid`, `organizationId`, active status, and `ownershipVersion` through the authenticated Device Service API and verifies that context against the local resource registration. The service deliberately keeps no device-context authorization cache; transfer and revocation therefore affect the next decision without a stale-allow window. Decision responses include a timestamp and a maximum five-second consumer cache hint.
+
 ## Commands
 
 ```sh

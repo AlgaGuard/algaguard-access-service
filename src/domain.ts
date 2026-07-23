@@ -32,6 +32,9 @@ export interface AuthorizationDecision {
     "ALLOWED" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_MISMATCH";
   organizationId?: string;
   role?: Role;
+  decidedAt?: string;
+  ttlSeconds?: number;
+  ownershipVersion?: string;
 }
 
 export class DomainError extends Error {

@@ -10,6 +10,10 @@ import {
   type AccessRepository,
   type ResourceType,
 } from "./domain.js";
+import {
+  OidcDeviceContextResolver,
+  type DeviceContextResolver,
+} from "./device-context.js";
 
 class FixedWindowLimiter {
   private readonly windows = new Map<
@@ -34,6 +38,7 @@ class FixedWindowLimiter {
 export interface RouteDependencies {
   repository: AccessRepository;
   authenticate?: Authenticator;
+  resolveDeviceContext?: DeviceContextResolver;
 }
 
 async function principal(request: Request, authenticate: Authenticator) {
@@ -59,8 +64,59 @@ async function requireOrganizationPermission(
 export function createRouter(dependencies: RouteDependencies) {
   const router = Router();
   const authenticate = dependencies.authenticate ?? createAuthenticator();
+  const resolveDeviceContext =
+    dependencies.resolveDeviceContext ?? new OidcDeviceContextResolver();
   const { repository } = dependencies;
   const limiter = new FixedWindowLimiter();
+
+  async function decide(
+    input: {
+      subjectId: string;
+      action: string;
+      resourceType: ResourceType;
+      resourceId?: string;
+      organizationId?: string;
+    },
+    request: Request,
+  ) {
+    let organizationId = input.organizationId;
+    let ownershipVersion: string | undefined;
+    if (input.resourceType === "device") {
+      const parsedUuid = z.string().uuid().safeParse(input.resourceId);
+      if (!parsedUuid.success)
+        return {
+          allowed: false,
+          reason: "RESOURCE_MISMATCH" as const,
+          decidedAt: new Date().toISOString(),
+          ttlSeconds: 0,
+        };
+      const context = await resolveDeviceContext.resolve(
+        parsedUuid.data,
+        request.header("x-correlation-id"),
+      );
+      if (
+        !context ||
+        (organizationId && organizationId !== context.organizationId)
+      )
+        return {
+          allowed: false,
+          reason: "RESOURCE_MISMATCH" as const,
+          decidedAt: new Date().toISOString(),
+          ttlSeconds: 0,
+        };
+      organizationId = context.organizationId;
+      ownershipVersion = context.ownershipVersion;
+    }
+    return {
+      ...(await repository.decide({
+        ...input,
+        ...(organizationId ? { organizationId } : {}),
+      })),
+      decidedAt: new Date().toISOString(),
+      ttlSeconds: 5,
+      ...(ownershipVersion ? { ownershipVersion } : {}),
+    };
+  }
 
   router.post("/organizations", async (request, response) => {
     const actor = await principal(request, authenticate);
@@ -219,8 +275,11 @@ export function createRouter(dependencies: RouteDependencies) {
       const resourceType = z
         .enum(["device", "profile", "command", "ota"])
         .parse(request.params.resourceType);
+      if (resourceType === "device")
+        z.string().uuid().parse(request.params.resourceId);
       const input = z
         .object({ organizationId: z.string().uuid() })
+        .strict()
         .parse(request.body);
       await repository.registerResource(
         resourceType,
@@ -253,18 +312,27 @@ export function createRouter(dependencies: RouteDependencies) {
         ]),
         resourceId: z.string().min(1).max(255).optional(),
         organizationId: z.string().uuid().optional(),
+        eventTypes: z
+          .array(z.string().min(1).max(64))
+          .min(1)
+          .max(10)
+          .optional(),
       })
+      .strict()
       .parse(request.body);
     response.json(
-      await repository.decide({
-        subjectId: input.subjectId,
-        action: input.action,
-        resourceType: input.resourceType,
-        ...(input.resourceId ? { resourceId: input.resourceId } : {}),
-        ...(input.organizationId
-          ? { organizationId: input.organizationId }
-          : {}),
-      }),
+      await decide(
+        {
+          subjectId: input.subjectId,
+          action: input.action,
+          resourceType: input.resourceType,
+          ...(input.resourceId ? { resourceId: input.resourceId } : {}),
+          ...(input.organizationId
+            ? { organizationId: input.organizationId }
+            : {}),
+        },
+        request,
+      ),
     );
   });
 
@@ -275,7 +343,14 @@ export function createRouter(dependencies: RouteDependencies) {
         subjectId: z.string().min(1).optional(),
         resourceType: z.enum(["organization", "device", "current-user"]),
         resourceId: z.string().min(1).max(255).optional(),
+        organizationId: z.string().uuid().optional(),
+        eventTypes: z
+          .array(z.string().min(1).max(64))
+          .min(1)
+          .max(10)
+          .optional(),
       })
+      .strict()
       .parse(request.body);
     if (
       input.subjectId &&
@@ -289,12 +364,18 @@ export function createRouter(dependencies: RouteDependencies) {
       );
     const resourceType: ResourceType = input.resourceType;
     response.json(
-      await repository.decide({
-        subjectId: input.subjectId ?? actor.subjectId,
-        action: "subscription.read",
-        resourceType,
-        ...(input.resourceId ? { resourceId: input.resourceId } : {}),
-      }),
+      await decide(
+        {
+          subjectId: input.subjectId ?? actor.subjectId,
+          action: "subscription.read",
+          resourceType,
+          ...(input.resourceId ? { resourceId: input.resourceId } : {}),
+          ...(input.organizationId
+            ? { organizationId: input.organizationId }
+            : {}),
+        },
+        request,
+      ),
     );
   });
 
