@@ -13,6 +13,20 @@ export type Authenticator = (
 
 export class AuthenticationError extends Error {}
 
+export function configuredServiceClients(
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return new Set(
+    (
+      environment.SERVICE_CLIENT_IDS ??
+      "algaguard-device-service,algaguard-profile-service,algaguard-command-service,algaguard-ota-service,algaguard-realtime-service,algaguard-telemetry-service"
+    )
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+}
+
 function principal(
   payload: JWTPayload,
   serviceClients: Set<string>,
@@ -38,15 +52,7 @@ export function createAuthenticator(
   const issuer =
     environment.KEYCLOAK_ISSUER ?? "http://keycloak:8080/realms/algaguard";
   const audience = environment.KEYCLOAK_AUDIENCE ?? "algaguard-api";
-  const serviceClients = new Set(
-    (
-      environment.SERVICE_CLIENT_IDS ??
-      "algaguard-device-service,algaguard-profile-service,algaguard-command-service,algaguard-ota-service,algaguard-realtime-service"
-    )
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
-  );
+  const serviceClients = configuredServiceClients(environment);
   const jwks = createRemoteJWKSet(
     new URL(`${issuer}/protocol/openid-connect/certs`),
   );
