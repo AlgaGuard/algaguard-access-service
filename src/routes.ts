@@ -94,6 +94,12 @@ export function createRouter(dependencies: RouteDependencies) {
         parsedUuid.data,
         request.header("x-correlation-id"),
       );
+      if (!context && input.action === "device.credentials.bootstrap")
+        return {
+          ...(await repository.decide(input)),
+          decidedAt: new Date().toISOString(),
+          ttlSeconds: 0,
+        };
       if (
         !context ||
         (organizationId && organizationId !== context.organizationId)
