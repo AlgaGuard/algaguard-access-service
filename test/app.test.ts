@@ -122,7 +122,7 @@ test("device decisions verify UUID ownership and react to revocation and transfe
       .set("authorization", "Bearer service")
       .send({
         subjectId,
-        action: "subscription.read",
+        action: "device.credentials.view",
         resourceType: "device",
         resourceId: deviceUuid,
         organizationId: contextOrganizationId,
