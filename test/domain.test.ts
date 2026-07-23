@@ -55,6 +55,11 @@ test("ownership transfer is atomic and last-owner protection is enforced", async
     expiresAt: new Date(Date.now() + 60_000),
   });
   await repository.acceptInvitation(token, "admin", "admin@example.test");
+  assert.equal(
+    (await repository.changeRole(organization.id, "admin", "OPERATOR")).role,
+    "OPERATOR",
+  );
+  await repository.changeRole(organization.id, "admin", "ADMIN");
   await assert.rejects(
     repository.changeRole(organization.id, "owner", "VIEWER"),
     (error: unknown) =>
@@ -97,9 +102,6 @@ test("resource decisions enforce tenant, role, and revocation", async () => {
     ).reason,
     "RESOURCE_MISMATCH",
   );
-  await repository
-    .transferOwnership(organization.id, "owner", "owner")
-    .catch(() => undefined);
   const invitation = await repository.createInvitation({
     organizationId: organization.id,
     email: "viewer@example.test",
@@ -111,6 +113,17 @@ test("resource decisions enforce tenant, role, and revocation", async () => {
     invitation.token,
     "viewer",
     "viewer@example.test",
+  );
+  assert.equal(
+    (
+      await repository.decide({
+        subjectId: "viewer",
+        action: "subscription.read",
+        resourceType: "device",
+        resourceId: "AG-000001",
+      })
+    ).allowed,
+    true,
   );
   await repository.revokeMembership(organization.id, "viewer");
   assert.equal(
