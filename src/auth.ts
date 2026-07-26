@@ -53,9 +53,9 @@ export function createAuthenticator(
     environment.KEYCLOAK_ISSUER ?? "http://keycloak:8080/realms/algaguard";
   const audience = environment.KEYCLOAK_AUDIENCE ?? "algaguard-api";
   const serviceClients = configuredServiceClients(environment);
-  const jwks = createRemoteJWKSet(
-    new URL(`${issuer}/protocol/openid-connect/certs`),
-  );
+  const jwksUrl =
+    environment.KEYCLOAK_JWKS_URL ?? `${issuer}/protocol/openid-connect/certs`;
+  const jwks = createRemoteJWKSet(new URL(jwksUrl));
   return async (authorization) => {
     const match = /^Bearer ([^ ]+)$/.exec(authorization ?? "");
     if (!match?.[1]) throw new AuthenticationError("Bearer token required");
