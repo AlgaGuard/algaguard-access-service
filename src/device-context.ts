@@ -51,22 +51,22 @@ export class OidcDeviceContextResolver implements DeviceContextResolver {
     const issuer =
       this.environment.KEYCLOAK_ISSUER ??
       "http://keycloak:8080/realms/algaguard";
+    const tokenUrl =
+      this.environment.KEYCLOAK_TOKEN_URL ??
+      `${issuer}/protocol/openid-connect/token`;
     const clientSecret = this.environment.SERVICE_CLIENT_SECRET;
     if (!clientSecret)
       throw new Error("SERVICE_CLIENT_SECRET is required for device context");
-    const response = await this.fetcher(
-      `${issuer}/protocol/openid-connect/token`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id:
-            this.environment.SERVICE_CLIENT_ID ?? "algaguard-access-service",
-          client_secret: clientSecret,
-        }),
-      },
-    );
+    const response = await this.fetcher(tokenUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id:
+          this.environment.SERVICE_CLIENT_ID ?? "algaguard-access-service",
+        client_secret: clientSecret,
+      }),
+    });
     if (!response.ok) throw new Error("Device context authentication failed");
     const body = (await response.json()) as {
       access_token?: string;

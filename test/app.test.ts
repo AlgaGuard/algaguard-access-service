@@ -251,7 +251,7 @@ test("claimed device bootstrap uses registered ownership before active context e
   assert.equal(ordinaryDecision.body.reason, "RESOURCE_MISMATCH");
 });
 
-test("Device Service context resolution uses client credentials and validates identity", async () => {
+test("Device Service context resolution uses the private token endpoint and validates identity", async () => {
   const deviceUuid = "20000000-0000-4000-8000-000000000001";
   const calls: Array<{ url: string; authorization?: string }> = [];
   const fetcher = (async (
@@ -265,7 +265,10 @@ test("Device Service context resolution uses client credentials and validates id
       url,
       ...(authorization ? { authorization } : {}),
     });
-    if (url.endsWith("/protocol/openid-connect/token"))
+    if (
+      url ===
+      "http://keycloak:8080/realms/algaguard/protocol/openid-connect/token"
+    )
       return Response.json({ access_token: "service-token", expires_in: 30 });
     return Response.json({
       schema: "urn:algaguard:schema:internal:device-context:v1",
@@ -281,7 +284,9 @@ test("Device Service context resolution uses client credentials and validates id
   }) as typeof fetch;
   const resolver = new OidcDeviceContextResolver(
     {
-      KEYCLOAK_ISSUER: "http://identity.test/realms/algaguard",
+      KEYCLOAK_ISSUER: "https://dev.algaguard.example/auth/realms/algaguard",
+      KEYCLOAK_TOKEN_URL:
+        "http://keycloak:8080/realms/algaguard/protocol/openid-connect/token",
       DEVICE_SERVICE_URL: "http://device.test",
       SERVICE_CLIENT_ID: "algaguard-access-service",
       SERVICE_CLIENT_SECRET: "test-only",
@@ -289,6 +294,10 @@ test("Device Service context resolution uses client credentials and validates id
     fetcher,
   );
   assert.equal((await resolver.resolve(deviceUuid))?.deviceId, "AG-000001");
+  assert.equal(
+    calls[0]?.url,
+    "http://keycloak:8080/realms/algaguard/protocol/openid-connect/token",
+  );
   assert.equal(calls[1]?.authorization, "Bearer service-token");
   assert.match(calls[1]?.url ?? "", new RegExp(`${deviceUuid}/context$`));
 });
