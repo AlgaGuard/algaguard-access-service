@@ -15,6 +15,12 @@ import {
   type DeviceContextResolver,
 } from "./device-context.js";
 
+const REGISTERED_DEVICE_FALLBACK_ACTIONS = new Set([
+  "device.credentials.bootstrap",
+  "device.bootstrap.reissue",
+  "device.physical-session-handoff.approve",
+]);
+
 class FixedWindowLimiter {
   private readonly windows = new Map<
     string,
@@ -107,9 +113,7 @@ export function createRouter(dependencies: RouteDependencies) {
       if (
         !context &&
         parsedUuid.success &&
-        ["device.credentials.bootstrap", "device.bootstrap.reissue"].includes(
-          input.action,
-        )
+        REGISTERED_DEVICE_FALLBACK_ACTIONS.has(input.action)
       )
         return {
           ...(await repository.decide(input)),

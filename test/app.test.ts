@@ -210,7 +210,7 @@ test("device decisions verify UUID ownership and react to revocation and transfe
   assert.equal(newOwner.body.ownershipVersion, "2");
 });
 
-test("claimed device bootstrap actions use registered ownership before active context exists", async () => {
+test("claimed-device bootstrap and handoff actions use registered ownership before active context exists", async () => {
   const repository = new MemoryAccessRepository();
   const organization = await repository.createOrganization("A", "owner-a");
   const deviceUuid = "20000000-0000-4000-8000-000000000001";
@@ -252,6 +252,33 @@ test("claimed device bootstrap actions use registered ownership before active co
   assert.equal(reissueDecision.body.organizationId, organization.id);
   assert.equal(reissueDecision.body.ttlSeconds, 0);
 
+  const handoffApprovalDecision = await request(instance)
+    .post("/v1/internal/authorizations/decide")
+    .set("authorization", "Bearer service")
+    .send({
+      subjectId: "owner-a",
+      action: "device.physical-session-handoff.approve",
+      resourceType: "device",
+      resourceId: deviceUuid,
+      organizationId: organization.id,
+    });
+  assert.equal(handoffApprovalDecision.status, 200);
+  assert.equal(handoffApprovalDecision.body.allowed, true);
+  assert.equal(handoffApprovalDecision.body.organizationId, organization.id);
+  assert.equal(handoffApprovalDecision.body.ttlSeconds, 0);
+
+  const wrongOrganizationDecision = await request(instance)
+    .post("/v1/internal/authorizations/decide")
+    .set("authorization", "Bearer service")
+    .send({
+      subjectId: "owner-a",
+      action: "device.physical-session-handoff.approve",
+      resourceType: "device",
+      resourceId: deviceUuid,
+      organizationId: "20000000-0000-4000-8000-000000000002",
+    });
+  assert.equal(wrongOrganizationDecision.body.allowed, false);
+
   const ordinaryDecision = await request(instance)
     .post("/v1/internal/authorizations/decide")
     .set("authorization", "Bearer service")
@@ -263,6 +290,18 @@ test("claimed device bootstrap actions use registered ownership before active co
     });
   assert.equal(ordinaryDecision.body.allowed, false);
   assert.equal(ordinaryDecision.body.reason, "RESOURCE_MISMATCH");
+
+  const claimDecision = await request(instance)
+    .post("/v1/internal/authorizations/decide")
+    .set("authorization", "Bearer service")
+    .send({
+      subjectId: "owner-a",
+      action: "device.claim",
+      resourceType: "device",
+      resourceId: deviceUuid,
+    });
+  assert.equal(claimDecision.body.allowed, false);
+  assert.equal(claimDecision.body.reason, "RESOURCE_MISMATCH");
 });
 
 test("Device Service context resolution uses the private token endpoint and validates identity", async () => {

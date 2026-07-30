@@ -169,6 +169,7 @@ test("credential operations use least-privilege roles and current membership", a
   const readActions = ["device.credentials.view", "device.credentials.audit"];
   const administrativeActions = [
     "device.bootstrap.reissue",
+    "device.physical-session-handoff.approve",
     "device.credentials.bootstrap",
     "device.credentials.rotate",
     "device.credentials.recover",
