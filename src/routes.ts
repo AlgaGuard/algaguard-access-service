@@ -107,7 +107,9 @@ export function createRouter(dependencies: RouteDependencies) {
       if (
         !context &&
         parsedUuid.success &&
-        input.action === "device.credentials.bootstrap"
+        ["device.credentials.bootstrap", "device.bootstrap.reissue"].includes(
+          input.action,
+        )
       )
         return {
           ...(await repository.decide(input)),

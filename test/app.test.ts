@@ -210,7 +210,7 @@ test("device decisions verify UUID ownership and react to revocation and transfe
   assert.equal(newOwner.body.ownershipVersion, "2");
 });
 
-test("claimed device bootstrap uses registered ownership before active context exists", async () => {
+test("claimed device bootstrap actions use registered ownership before active context exists", async () => {
   const repository = new MemoryAccessRepository();
   const organization = await repository.createOrganization("A", "owner-a");
   const deviceUuid = "20000000-0000-4000-8000-000000000001";
@@ -237,6 +237,20 @@ test("claimed device bootstrap uses registered ownership before active context e
   assert.equal(decision.body.allowed, true);
   assert.equal(decision.body.organizationId, organization.id);
   assert.equal(decision.body.ttlSeconds, 0);
+
+  const reissueDecision = await request(instance)
+    .post("/v1/internal/authorizations/decide")
+    .set("authorization", "Bearer service")
+    .send({
+      subjectId: "owner-a",
+      action: "device.bootstrap.reissue",
+      resourceType: "device",
+      resourceId: deviceUuid,
+    });
+  assert.equal(reissueDecision.status, 200);
+  assert.equal(reissueDecision.body.allowed, true);
+  assert.equal(reissueDecision.body.organizationId, organization.id);
+  assert.equal(reissueDecision.body.ttlSeconds, 0);
 
   const ordinaryDecision = await request(instance)
     .post("/v1/internal/authorizations/decide")

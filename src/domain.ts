@@ -59,6 +59,7 @@ export function rolesForAction(action: string): Role[] {
       "access.manage",
       "device.claim",
       "device.manage",
+      "device.bootstrap.reissue",
       "device.credentials.bootstrap",
       "device.credentials.rotate",
       "device.credentials.recover",
