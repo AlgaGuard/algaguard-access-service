@@ -24,6 +24,8 @@ export interface Invitation {
   role: Exclude<Role, "OWNER">;
   expiresAt: string;
   consumedAt?: string;
+  rejectedAt?: string;
+  organizationName?: string;
 }
 
 export interface AuthorizationDecision {
@@ -98,6 +100,13 @@ export interface AccessRepository {
     subjectId: string,
     email: string,
   ): Promise<Membership>;
+  pendingInvitations(email: string): Promise<Invitation[]>;
+  acceptInvitationById(
+    invitationId: string,
+    subjectId: string,
+    email: string,
+  ): Promise<Membership>;
+  rejectInvitation(invitationId: string, email: string): Promise<void>;
   changeRole(
     organizationId: string,
     subjectId: string,
@@ -195,7 +204,8 @@ export class MemoryAccessRepository implements AccessRepository {
       digest: invitationDigest(token),
     };
     this.invitations.set(invitation.id, invitation);
-    return { invitation: structuredClone(invitation), token };
+    const { digest: _digest, ...publicInvitation } = invitation;
+    return { invitation: structuredClone(publicInvitation), token };
   }
 
   async acceptInvitation(token: string, subjectId: string, email: string) {
@@ -203,7 +213,7 @@ export class MemoryAccessRepository implements AccessRepository {
     const invitation = [...this.invitations.values()].find(
       (value) => value.digest === digest,
     );
-    if (!invitation || invitation.consumedAt)
+    if (!invitation || invitation.consumedAt || invitation.rejectedAt)
       throw new DomainError(
         "INVITATION_USED",
         410,
@@ -232,6 +242,88 @@ export class MemoryAccessRepository implements AccessRepository {
     };
     this.memberships.set(key, membership);
     return structuredClone(membership);
+  }
+
+  async pendingInvitations(email: string) {
+    const normalized = email.toLowerCase();
+    const now = Date.now();
+    return [...this.invitations.values()]
+      .filter(
+        (value) =>
+          value.email === normalized &&
+          !value.consumedAt &&
+          !value.rejectedAt &&
+          Date.parse(value.expiresAt) > now,
+      )
+      .map(({ digest: _digest, ...value }) => ({
+        ...structuredClone(value),
+        organizationName:
+          this.organizations.get(value.organizationId)?.name ?? "Organization",
+      }));
+  }
+
+  async acceptInvitationById(
+    invitationId: string,
+    subjectId: string,
+    email: string,
+  ) {
+    const invitation = this.invitations.get(invitationId);
+    if (!invitation || invitation.email !== email.toLowerCase()) {
+      throw new DomainError(
+        "INVITATION_UNAVAILABLE",
+        404,
+        "Invitation unavailable",
+      );
+    }
+    const tokenMatch = [...this.invitations.values()].find(
+      (value) => value.id === invitationId,
+    );
+    if (
+      !tokenMatch ||
+      tokenMatch.consumedAt ||
+      tokenMatch.rejectedAt ||
+      Date.parse(tokenMatch.expiresAt) <= Date.now()
+    ) {
+      throw new DomainError(
+        "INVITATION_UNAVAILABLE",
+        410,
+        "Invitation unavailable",
+      );
+    }
+    const key = this.membershipKey(invitation.organizationId, subjectId);
+    if (this.memberships.has(key) && !this.memberships.get(key)?.revokedAt) {
+      throw new DomainError(
+        "DUPLICATE_MEMBERSHIP",
+        409,
+        "Membership already exists",
+      );
+    }
+    invitation.consumedAt = new Date().toISOString();
+    const membership: Membership = {
+      organizationId: invitation.organizationId,
+      subjectId,
+      role: invitation.role,
+    };
+    this.memberships.set(key, membership);
+    return structuredClone(membership);
+  }
+
+  async rejectInvitation(invitationId: string, email: string) {
+    const invitation = this.invitations.get(invitationId);
+    if (
+      !invitation ||
+      invitation.email !== email.toLowerCase() ||
+      invitation.consumedAt ||
+      invitation.rejectedAt ||
+      Date.parse(invitation.expiresAt) <= Date.now()
+    ) {
+      throw new DomainError(
+        "INVITATION_UNAVAILABLE",
+        410,
+        "Invitation unavailable",
+      );
+    }
+    invitation.rejectedAt = new Date().toISOString();
   }
 
   async changeRole(organizationId: string, subjectId: string, role: Role) {

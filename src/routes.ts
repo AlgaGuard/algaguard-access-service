@@ -220,6 +220,49 @@ export function createRouter(dependencies: RouteDependencies) {
     );
   });
 
+  router.get("/invitations", async (request, response) => {
+    const actor = await principal(request, authenticate);
+    if (!actor.email)
+      throw new DomainError(
+        "EMAIL_REQUIRED",
+        403,
+        "A verified token email is required",
+      );
+    response.json({ items: await repository.pendingInvitations(actor.email) });
+  });
+
+  router.post("/invitations/:id/accept", async (request, response) => {
+    const actor = await principal(request, authenticate);
+    if (!actor.email)
+      throw new DomainError(
+        "EMAIL_REQUIRED",
+        403,
+        "A verified token email is required",
+      );
+    response.json(
+      await repository.acceptInvitationById(
+        z.string().uuid().parse(request.params.id),
+        actor.subjectId,
+        actor.email,
+      ),
+    );
+  });
+
+  router.post("/invitations/:id/reject", async (request, response) => {
+    const actor = await principal(request, authenticate);
+    if (!actor.email)
+      throw new DomainError(
+        "EMAIL_REQUIRED",
+        403,
+        "A verified token email is required",
+      );
+    await repository.rejectInvitation(
+      z.string().uuid().parse(request.params.id),
+      actor.email,
+    );
+    response.status(204).end();
+  });
+
   router.patch(
     "/organizations/:id/memberships/:subjectId",
     async (request, response) => {

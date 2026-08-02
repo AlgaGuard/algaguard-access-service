@@ -20,4 +20,9 @@ npm run dev
 
 Migrations are explicit, checksum-guarded, serialized with a PostgreSQL advisory lock, and never reset data. Invitation tokens are returned only at creation, stored as SHA-256 digests, consumed transactionally, and redacted from logs. Ownership transfer and last-owner protection lock the affected membership rows.
 
+Authenticated users can list invitations addressed to their verified token
+email and accept or reject them by invitation ID. These in-app response routes
+never return the one-time invitation token, and a rejected invitation cannot
+subsequently be accepted.
+
 The integration test requires `TEST_DATABASE_URL` (or `DATABASE_URL`) and proves that organizations and consumed invitations remain authoritative after constructing a new repository instance. No production deployment is claimed.

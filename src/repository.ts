@@ -44,6 +44,10 @@ function invitation(row: Record<string, unknown>): Invitation {
     role: row.role as Invitation["role"],
     expiresAt: iso(row.expires_at as Date),
     ...(row.consumed_at ? { consumedAt: iso(row.consumed_at as Date) } : {}),
+    ...(row.rejected_at ? { rejectedAt: iso(row.rejected_at as Date) } : {}),
+    ...(row.organization_name
+      ? { organizationName: String(row.organization_name) }
+      : {}),
   };
 }
 
@@ -145,7 +149,7 @@ export class PostgresAccessRepository implements AccessRepository {
         [invitationDigest(token)],
       );
       const row = found.rows[0] as Record<string, unknown> | undefined;
-      if (!row || row.consumed_at)
+      if (!row || row.consumed_at || row.rejected_at)
         throw new DomainError(
           "INVITATION_USED",
           410,
@@ -189,6 +193,95 @@ export class PostgresAccessRepository implements AccessRepository {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  async pendingInvitations(email: string) {
+    const result = await this.pool.query(
+      `SELECT i.*, o.name AS organization_name
+         FROM invitations i
+         JOIN organizations o ON o.id = i.organization_id
+        WHERE i.email = lower($1) AND i.consumed_at IS NULL
+          AND i.rejected_at IS NULL AND i.expires_at > now()
+        ORDER BY i.expires_at`,
+      [email],
+    );
+    return result.rows.map((row) => invitation(row as Record<string, unknown>));
+  }
+
+  async acceptInvitationById(
+    invitationId: string,
+    subjectId: string,
+    email: string,
+  ) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const found = await client.query(
+        "SELECT * FROM invitations WHERE id=$1 FOR UPDATE",
+        [invitationId],
+      );
+      const row = found.rows[0] as Record<string, unknown> | undefined;
+      if (
+        !row ||
+        row.consumed_at ||
+        row.rejected_at ||
+        String(row.email).toLowerCase() !== email.toLowerCase() ||
+        new Date(row.expires_at as string | Date).getTime() <= Date.now()
+      ) {
+        throw new DomainError(
+          "INVITATION_UNAVAILABLE",
+          410,
+          "Invitation unavailable",
+        );
+      }
+      const duplicate = await client.query(
+        `SELECT 1 FROM memberships WHERE organization_id=$1 AND subject_id=$2
+          AND revoked_at IS NULL`,
+        [row.organization_id, subjectId],
+      );
+      if (duplicate.rowCount) {
+        throw new DomainError(
+          "DUPLICATE_MEMBERSHIP",
+          409,
+          "Membership already exists",
+        );
+      }
+      const added = await client.query(
+        `INSERT INTO memberships (organization_id, subject_id, role)
+         VALUES ($1,$2,$3)
+         ON CONFLICT (organization_id, subject_id) DO UPDATE
+           SET role=EXCLUDED.role, revoked_at=NULL, updated_at=now()
+         RETURNING *`,
+        [row.organization_id, subjectId, row.role],
+      );
+      await client.query(
+        "UPDATE invitations SET consumed_at=now() WHERE id=$1",
+        [invitationId],
+      );
+      await client.query("COMMIT");
+      return membership(added.rows[0] as Record<string, unknown>);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async rejectInvitation(invitationId: string, email: string) {
+    const result = await this.pool.query(
+      `UPDATE invitations SET rejected_at=now()
+        WHERE id=$1 AND email=lower($2) AND consumed_at IS NULL
+          AND rejected_at IS NULL AND expires_at > now()`,
+      [invitationId, email],
+    );
+    if (!result.rowCount) {
+      throw new DomainError(
+        "INVITATION_UNAVAILABLE",
+        410,
+        "Invitation unavailable",
+      );
     }
   }
 

@@ -45,6 +45,45 @@ test("expired invitations are rejected", async () => {
   );
 });
 
+test("incoming invitations can be accepted or rejected without sharing tokens", async () => {
+  const repository = new MemoryAccessRepository();
+  const organization = await repository.createOrganization("Lab", "owner");
+  const accepted = await repository.createInvitation({
+    organizationId: organization.id,
+    email: "member@example.test",
+    role: "ADMIN",
+    invitedBy: "owner",
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  const rejected = await repository.createInvitation({
+    organizationId: organization.id,
+    email: "member@example.test",
+    role: "VIEWER",
+    invitedBy: "owner",
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  const pending = await repository.pendingInvitations("MEMBER@example.test");
+  assert.equal(pending.length, 2);
+  assert.equal(JSON.stringify(pending).includes(accepted.token), false);
+  await repository.acceptInvitationById(
+    accepted.invitation.id,
+    "member",
+    "member@example.test",
+  );
+  await repository.rejectInvitation(
+    rejected.invitation.id,
+    "member@example.test",
+  );
+  assert.equal(
+    (await repository.pendingInvitations("member@example.test")).length,
+    0,
+  );
+  assert.equal(
+    (await repository.membership(organization.id, "member"))?.role,
+    "ADMIN",
+  );
+});
+
 test("ownership transfer is atomic and last-owner protection is enforced", async () => {
   const { repository, organization } = await fixture();
   const { token } = await repository.createInvitation({
