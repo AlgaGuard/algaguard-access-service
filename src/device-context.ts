@@ -1,4 +1,21 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import * as grpc from "@grpc/grpc-js";
+import * as protoLoader from "@grpc/proto-loader";
+import {
+  createServiceTokenProvider,
+  metadataWithServiceToken,
+} from "./grpc-client.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const DEVICE_PROTO_PATH = path.resolve(
+  here,
+  "..",
+  "proto",
+  "device_service.proto",
+);
+const DEVICE_STATUS_NAME: Record<number, "ACTIVE"> = { 5: "ACTIVE" };
 
 export interface DeviceContext {
   schema: "urn:algaguard:schema:internal:device-context:v1";
@@ -115,6 +132,98 @@ export class OidcDeviceContextResolver implements DeviceContextResolver {
       correlationId,
     );
     if (!context) return undefined;
+    return context.deviceId === deviceId ? context : undefined;
+  }
+}
+
+export class GrpcDeviceContextResolver implements DeviceContextResolver {
+  private readonly client: any;
+  private readonly serviceToken: () => Promise<string>;
+
+  constructor(
+    address: string,
+    environment: NodeJS.ProcessEnv = process.env,
+    serviceToken = createServiceTokenProvider(environment),
+  ) {
+    const packageDefinition = protoLoader.loadSync(DEVICE_PROTO_PATH, {
+      keepCase: false,
+      longs: String,
+      enums: Number,
+      defaults: true,
+      oneofs: true,
+      includeDirs: [path.dirname(DEVICE_PROTO_PATH)],
+    });
+    const proto = grpc.loadPackageDefinition(packageDefinition) as any;
+    this.serviceToken = serviceToken;
+    this.client = new proto.algaguard.device.v1.DeviceLookupService(
+      address,
+      grpc.credentials.createInsecure(),
+    );
+  }
+
+  private toContext(response: any): DeviceContext {
+    return {
+      schema: "urn:algaguard:schema:internal:device-context:v1",
+      schemaVersion: "1.0.0",
+      deviceUuid: response.deviceUuid,
+      deviceId: response.deviceId,
+      organizationId: response.organizationId,
+      status: DEVICE_STATUS_NAME[response.status] ?? "ACTIVE",
+      ownershipVersion: response.ownershipVersion,
+      resolvedAt: response.resolvedAt,
+    };
+  }
+
+  private async call(
+    method: "getContext" | "getContextByDeviceId",
+    request: unknown,
+    correlationId?: string,
+  ) {
+    const metadata = await metadataWithServiceToken(
+      this.serviceToken,
+      correlationId ? { "x-correlation-id": correlationId } : {},
+    );
+    return new Promise<any>((resolve, reject) => {
+      this.client[method](
+        request,
+        metadata,
+        (error: grpc.ServiceError, value: unknown) => {
+          if (!error) {
+            resolve(value);
+            return;
+          }
+          if (
+            error.code === grpc.status.NOT_FOUND ||
+            error.code === grpc.status.FAILED_PRECONDITION
+          ) {
+            resolve(undefined);
+            return;
+          }
+          reject(error);
+        },
+      );
+    });
+  }
+
+  async resolve(deviceUuid: string, correlationId?: string) {
+    const response = await this.call(
+      "getContext",
+      { deviceUuid },
+      correlationId,
+    );
+    if (!response) return undefined;
+    const context = this.toContext(response);
+    return context.deviceUuid === deviceUuid ? context : undefined;
+  }
+
+  async resolveByDeviceId(deviceId: string, correlationId?: string) {
+    const response = await this.call(
+      "getContextByDeviceId",
+      { deviceId },
+      correlationId,
+    );
+    if (!response) return undefined;
+    const context = this.toContext(response);
     return context.deviceId === deviceId ? context : undefined;
   }
 }

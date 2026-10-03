@@ -26,7 +26,11 @@ process.stdout.write(
 // algaguard-contracts checkout -- this service vendors its own copy under
 // proto/. This check keeps that copy from silently drifting from the
 // source of truth.
-const vendoredProtos = ["common.proto", "access_service.proto"];
+const vendoredProtos = [
+  "common.proto",
+  "access_service.proto",
+  "device_service.proto",
+];
 const protoMismatches = vendoredProtos.filter((file) => {
   const vendored = path.resolve("proto", file);
   const source = path.join(contractRoot, "proto", file);

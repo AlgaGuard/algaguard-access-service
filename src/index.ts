@@ -3,22 +3,31 @@ import { buildApp } from "./app.js";
 import { createPostgresPool } from "./adapters.js";
 import { createAuthenticator } from "./auth.js";
 import { loadConfig } from "./config.js";
+import { GrpcDeviceContextResolver } from "./device-context.js";
 import { PostgresAccessRepository } from "./repository.js";
 import { buildGrpcServer } from "./grpc-server.js";
 
 const config = loadConfig();
 const repository = new PostgresAccessRepository(createPostgresPool(config));
 const authenticate = createAuthenticator();
-const server = buildApp({ repository, authenticate }).listen(
-  config.PORT,
-  () => {
-    process.stdout.write(
-      `${JSON.stringify({ level: "info", service: "algaguard-access-service", message: "listening", port: config.PORT })}\n`,
-    );
-  },
+const resolveDeviceContext = new GrpcDeviceContextResolver(
+  config.DEVICE_SERVICE_GRPC_ADDRESS,
 );
+const server = buildApp({
+  repository,
+  authenticate,
+  resolveDeviceContext,
+}).listen(config.PORT, () => {
+  process.stdout.write(
+    `${JSON.stringify({ level: "info", service: "algaguard-access-service", message: "listening", port: config.PORT })}\n`,
+  );
+});
 
-const grpcServer = buildGrpcServer({ repository, authenticate });
+const grpcServer = buildGrpcServer({
+  repository,
+  authenticate,
+  resolveDeviceContext,
+});
 grpcServer.bindAsync(
   `0.0.0.0:${config.GRPC_PORT}`,
   grpc.ServerCredentials.createInsecure(),

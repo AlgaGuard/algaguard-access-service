@@ -6,6 +6,10 @@ const environmentSchema = z.object({
     .default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   GRPC_PORT: z.coerce.number().int().min(1).max(65535).default(50051),
+  DEVICE_SERVICE_GRPC_ADDRESS: z
+    .string()
+    .min(1)
+    .default("device-service:50051"),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().url(),
   LOG_LEVEL: z
