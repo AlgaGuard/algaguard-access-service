@@ -1,19 +1,34 @@
+import * as grpc from "@grpc/grpc-js";
 import { buildApp } from "./app.js";
 import { createPostgresPool } from "./adapters.js";
 import { createAuthenticator } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { PostgresAccessRepository } from "./repository.js";
+import { buildGrpcServer } from "./grpc-server.js";
 
 const config = loadConfig();
 const repository = new PostgresAccessRepository(createPostgresPool(config));
-const server = buildApp({
-  repository,
-  authenticate: createAuthenticator(),
-}).listen(config.PORT, () => {
-  process.stdout.write(
-    `${JSON.stringify({ level: "info", service: "algaguard-access-service", message: "listening", port: config.PORT })}\n`,
-  );
-});
+const authenticate = createAuthenticator();
+const server = buildApp({ repository, authenticate }).listen(
+  config.PORT,
+  () => {
+    process.stdout.write(
+      `${JSON.stringify({ level: "info", service: "algaguard-access-service", message: "listening", port: config.PORT })}\n`,
+    );
+  },
+);
+
+const grpcServer = buildGrpcServer({ repository, authenticate });
+grpcServer.bindAsync(
+  `0.0.0.0:${config.GRPC_PORT}`,
+  grpc.ServerCredentials.createInsecure(),
+  (error, port) => {
+    if (error) throw error;
+    process.stdout.write(
+      `${JSON.stringify({ level: "info", service: "algaguard-access-service", message: "grpc listening", port })}\n`,
+    );
+  },
+);
 
 let shuttingDown = false;
 async function shutdown(signal: string) {
@@ -24,6 +39,7 @@ async function shutdown(signal: string) {
   );
   const deadline = setTimeout(() => process.exit(1), 10_000);
   deadline.unref();
+  grpcServer.tryShutdown(() => {});
   server.close(async (error) => {
     try {
       await repository.close();

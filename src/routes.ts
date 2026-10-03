@@ -10,16 +10,8 @@ import {
   type AccessRepository,
   type ResourceType,
 } from "./domain.js";
-import {
-  OidcDeviceContextResolver,
-  type DeviceContextResolver,
-} from "./device-context.js";
-
-const REGISTERED_DEVICE_FALLBACK_ACTIONS = new Set([
-  "device.credentials.bootstrap",
-  "device.bootstrap.reissue",
-  "device.physical-session-handoff.approve",
-]);
+import type { DeviceContextResolver } from "./device-context.js";
+import { createDecider } from "./decide.js";
 
 class FixedWindowLimiter {
   private readonly windows = new Map<
@@ -70,10 +62,14 @@ async function requireOrganizationPermission(
 export function createRouter(dependencies: RouteDependencies) {
   const router = Router();
   const authenticate = dependencies.authenticate ?? createAuthenticator();
-  const resolveDeviceContext =
-    dependencies.resolveDeviceContext ?? new OidcDeviceContextResolver();
   const { repository } = dependencies;
   const limiter = new FixedWindowLimiter();
+  const decideFor = createDecider({
+    repository,
+    ...(dependencies.resolveDeviceContext
+      ? { resolveDeviceContext: dependencies.resolveDeviceContext }
+      : {}),
+  });
 
   async function decide(
     input: {
@@ -85,65 +81,7 @@ export function createRouter(dependencies: RouteDependencies) {
     },
     request: Request,
   ) {
-    let organizationId = input.organizationId;
-    let ownershipVersion: string | undefined;
-    let canonicalResourceId = input.resourceId;
-    if (input.resourceType === "device") {
-      const parsedUuid = z.string().uuid().safeParse(input.resourceId);
-      const parsedDeviceId = z
-        .string()
-        .regex(/^AG-[0-9]{6}$/)
-        .safeParse(input.resourceId);
-      if (!parsedUuid.success && !parsedDeviceId.success)
-        return {
-          allowed: false,
-          reason: "RESOURCE_MISMATCH" as const,
-          decidedAt: new Date().toISOString(),
-          ttlSeconds: 0,
-        };
-      const context = parsedUuid.success
-        ? await resolveDeviceContext.resolve(
-            parsedUuid.data,
-            request.header("x-correlation-id"),
-          )
-        : await resolveDeviceContext.resolveByDeviceId?.(
-            parsedDeviceId.data!,
-            request.header("x-correlation-id"),
-          );
-      if (
-        !context &&
-        parsedUuid.success &&
-        REGISTERED_DEVICE_FALLBACK_ACTIONS.has(input.action)
-      )
-        return {
-          ...(await repository.decide(input)),
-          decidedAt: new Date().toISOString(),
-          ttlSeconds: 0,
-        };
-      if (
-        !context ||
-        (organizationId && organizationId !== context.organizationId)
-      )
-        return {
-          allowed: false,
-          reason: "RESOURCE_MISMATCH" as const,
-          decidedAt: new Date().toISOString(),
-          ttlSeconds: 0,
-        };
-      organizationId = context.organizationId;
-      ownershipVersion = context.ownershipVersion;
-      canonicalResourceId = context.deviceUuid;
-    }
-    return {
-      ...(await repository.decide({
-        ...input,
-        ...(canonicalResourceId ? { resourceId: canonicalResourceId } : {}),
-        ...(organizationId ? { organizationId } : {}),
-      })),
-      decidedAt: new Date().toISOString(),
-      ttlSeconds: 5,
-      ...(ownershipVersion ? { ownershipVersion } : {}),
-    };
+    return decideFor(input, request.header("x-correlation-id"));
   }
 
   router.post("/organizations", async (request, response) => {
